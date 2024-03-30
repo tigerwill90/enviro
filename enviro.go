@@ -77,45 +77,48 @@ func parseTimeFormatTag(tag string) (format, location string) {
 	return
 }
 
-// From html/template/content.go
-// Copyright 2011 The Go Authors. All rights reserved.
-// indirect returns the value, after dereferencing as many times
-// as necessary to reach the base type (or nil).
-func indirect(a any) any {
-	if a == nil {
-		return nil
-	}
-	if t := reflect.TypeOf(a); t.Kind() != reflect.Ptr {
-		// Avoid creating a reflect.Value if it's not a pointer.
-		return a
-	}
-	v := reflect.ValueOf(a)
-	for v.Kind() == reflect.Ptr && !v.IsNil() {
-		v = v.Elem()
-	}
-	return v.Interface()
-}
-
 func setField(field reflect.Value, value, formatTag string) error {
 
-	switch field.Kind() {
-	case reflect.String:
-		return setStringField(field, value)
-	case reflect.Int, reflect.Int32, reflect.Int64:
-		return setIntField(field, value)
-	case reflect.Uint, reflect.Uint32, reflect.Uint64:
-		return setUintField(field, value)
-	case reflect.Float32, reflect.Float64:
-		return setFloatField(field, value)
-	case reflect.Bool:
-		return setBoolField(field, value)
-	case reflect.Struct:
-		return setStructField(field, value, formatTag)
-	case reflect.Slice:
-		return setSliceField(field, value)
-	default:
-		return errors.New("unsupported field type")
+	// Determine if the field is a pointer and get the element type
+	isPtr := field.Type().Kind() == reflect.Ptr
+	var elemType reflect.Type
+	if isPtr {
+		elemType = field.Type().Elem()
+	} else {
+		elemType = field.Type()
 	}
+
+	var err error
+	// Create a new value of the element type to hold the converted value
+	newVal := reflect.New(elemType).Elem()
+
+	switch elemType.Kind() {
+	case reflect.String:
+		err = setStringField(newVal, value)
+	case reflect.Int, reflect.Int32, reflect.Int64:
+		err = setIntField(newVal, value)
+	case reflect.Uint, reflect.Uint32, reflect.Uint64:
+		err = setUintField(newVal, value)
+	case reflect.Float32, reflect.Float64:
+		err = setFloatField(newVal, value)
+	case reflect.Bool:
+		err = setBoolField(newVal, value)
+	case reflect.Struct:
+		err = setStructField(newVal, value, formatTag)
+	case reflect.Slice:
+		err = setSliceField(newVal, value)
+	default:
+		err = errors.New("unsupported field type")
+	}
+
+	// If there was no error and the original field is a pointer, set the field to point to newVal
+	if err == nil && isPtr {
+		field.Set(newVal.Addr()) // .Addr() gets the pointer to newVal
+	} else if err == nil {
+		field.Set(newVal) // Directly set the value if it's not a pointer
+	}
+
+	return err
 }
 
 func setStringField(field reflect.Value, value string) error {
