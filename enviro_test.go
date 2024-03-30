@@ -3,20 +3,24 @@ package enviro
 import (
 	"fmt"
 	"github.com/spf13/viper"
+	"net"
 	"os"
 	"testing"
 	"time"
 )
 
 type Config struct {
-	Timeout      time.Duration `enviro:"timeout,required"`
-	Host         string        `enviro:"host,required"`
-	Port         uint          `enviro:"port"`
-	Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
-	JsonConfig   JsonConfig    `enviro:"json_config" envformat:"json"`
-	NestedConfig struct {
-		Foo string `enviro:"foo"`
-	}
+	/*	Timeout      time.Duration `enviro:"timeout,required"`
+		Host         string        `enviro:"host,required"`
+		Port         uint          `enviro:"port"`
+		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
+		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
+	Number []net.IP `enviro:"number"`
+	// NestedConfig NestedConfig
+}
+
+type NestedConfig struct {
+	Foo string `enviro:"foo"`
 }
 
 type DurationAlias time.Duration
@@ -33,13 +37,16 @@ func (t TimeAlias) String() string {
 
 type JsonConfig struct {
 	Foo string `json:"foo"`
+	Bar string `json:"bar"`
 }
 
 func TestX(t *testing.T) {
 	os.Setenv("TEST_TIMEOUT", "10s")
 	os.Setenv("TEST_HOST", "localhost")
 	os.Setenv("TEST_TIME", "2024*03*30")
-	// os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"}`)
+	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"}`)
+	os.Setenv("TEST_FOO", "baz")
+	os.Setenv("TEST_NUMBER", "0.1,2,3")
 
 	e := New()
 	e.SetEnvPrefix("test")

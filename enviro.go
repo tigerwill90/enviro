@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"reflect"
 	"strconv"
@@ -24,7 +25,12 @@ func (e *Enviro) SetEnvPrefix(prefix string) {
 }
 
 func (e *Enviro) Load(config any) error {
-	val := reflect.ValueOf(config).Elem()
+	val := reflect.ValueOf(config)
+	if val.Kind() != reflect.Ptr || val.IsNil() {
+		return errors.New("config must be a pointer to a struct")
+	}
+
+	val = val.Elem()
 	typ := val.Type()
 
 	for i := 0; i < val.NumField(); i++ {
@@ -34,7 +40,32 @@ func (e *Enviro) Load(config any) error {
 		envFormatTag := fieldType.Tag.Get("envformat")
 
 		if tag == "" {
-			continue // Skip fields without `enviro` tag
+			if field.CanSet() {
+				// Handling nested structs or pointers to structs
+				if fieldType.Type.Kind() == reflect.Struct || (fieldType.Type.Kind() == reflect.Ptr && fieldType.Type.Elem().Kind() == reflect.Struct) {
+					nestedStruct := field
+					if nestedStruct.Kind() == reflect.Ptr && nestedStruct.IsNil() {
+						// Instantiate the nil pointer to a nested struct
+						nestedStruct.Set(reflect.New(fieldType.Type.Elem()))
+					}
+
+					// Recursively load the nested struct or the newly instantiated struct
+					var err error
+					if nestedStruct.Kind() == reflect.Ptr {
+						err = e.Load(nestedStruct.Interface())
+					} else {
+						err = e.Load(nestedStruct.Addr().Interface())
+					}
+
+					if err != nil {
+						return err
+					}
+
+					continue
+				}
+			}
+
+			continue
 		}
 
 		envKey, required := parseTag(tag)
@@ -48,7 +79,7 @@ func (e *Enviro) Load(config any) error {
 		}
 
 		if exists {
-			if err := setField(field, envValue, envFormatTag); err != nil {
+			if err := e.setField(field, envValue, envFormatTag); err != nil {
 				return err
 			}
 		}
@@ -77,7 +108,7 @@ func parseTimeFormatTag(tag string) (format, location string) {
 	return
 }
 
-func setField(field reflect.Value, value, formatTag string) error {
+func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 
 	// Determine if the field is a pointer and get the element type
 	isPtr := field.Type().Kind() == reflect.Ptr
@@ -94,39 +125,43 @@ func setField(field reflect.Value, value, formatTag string) error {
 
 	switch elemType.Kind() {
 	case reflect.String:
-		err = setStringField(newVal, value)
+		err = e.setStringField(newVal, value)
 	case reflect.Int, reflect.Int32, reflect.Int64:
-		err = setIntField(newVal, value)
+		err = e.setIntField(newVal, value)
 	case reflect.Uint, reflect.Uint32, reflect.Uint64:
-		err = setUintField(newVal, value)
+		err = e.setUintField(newVal, value)
 	case reflect.Float32, reflect.Float64:
-		err = setFloatField(newVal, value)
+		err = e.setFloatField(newVal, value)
 	case reflect.Bool:
-		err = setBoolField(newVal, value)
+		err = e.setBoolField(newVal, value)
 	case reflect.Struct:
-		err = setStructField(newVal, value, formatTag)
+		err = e.setStructField(newVal, value, formatTag)
 	case reflect.Slice:
-		err = setSliceField(newVal, value)
+		err = e.setSliceField(newVal, value)
 	default:
 		err = errors.New("unsupported field type")
 	}
 
+	if err != nil {
+		return err
+	}
+
 	// If there was no error and the original field is a pointer, set the field to point to newVal
-	if err == nil && isPtr {
+	if isPtr {
 		field.Set(newVal.Addr()) // .Addr() gets the pointer to newVal
-	} else if err == nil {
+	} else {
 		field.Set(newVal) // Directly set the value if it's not a pointer
 	}
 
-	return err
+	return nil
 }
 
-func setStringField(field reflect.Value, value string) error {
+func (e *Enviro) setStringField(field reflect.Value, value string) error {
 	field.SetString(value)
 	return nil
 }
 
-func setIntField(field reflect.Value, value string) error {
+func (e *Enviro) setIntField(field reflect.Value, value string) error {
 	if field.Type() == reflect.TypeOf(time.Duration(0)) || field.Type().ConvertibleTo(reflect.TypeOf(time.Duration(0))) {
 		d, err := time.ParseDuration(value)
 		if err != nil {
@@ -144,7 +179,7 @@ func setIntField(field reflect.Value, value string) error {
 	return nil
 }
 
-func setUintField(field reflect.Value, value string) error {
+func (e *Enviro) setUintField(field reflect.Value, value string) error {
 	u, err := strconv.ParseUint(value, 10, field.Type().Bits())
 	if err != nil {
 		return err
@@ -153,7 +188,7 @@ func setUintField(field reflect.Value, value string) error {
 	return nil
 }
 
-func setFloatField(field reflect.Value, value string) error {
+func (e *Enviro) setFloatField(field reflect.Value, value string) error {
 	f, err := strconv.ParseFloat(value, field.Type().Bits())
 	if err != nil {
 		return err
@@ -162,7 +197,7 @@ func setFloatField(field reflect.Value, value string) error {
 	return nil
 }
 
-func setBoolField(field reflect.Value, value string) error {
+func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 	b, err := strconv.ParseBool(value)
 	if err != nil {
 		return err
@@ -171,7 +206,11 @@ func setBoolField(field reflect.Value, value string) error {
 	return nil
 }
 
-func setSliceField(field reflect.Value, value string) error {
+func (e *Enviro) setSliceField(field reflect.Value, value string) error {
+	if field.Type() == reflect.TypeOf([]net.IP(nil)) || field.Type().ConvertibleTo(reflect.TypeOf([]net.IP(nil))) {
+		fmt.Println("yolo")
+	}
+
 	switch field.Type().Elem().Kind() {
 	case reflect.String:
 		slice, err := parseStringSlice(value, true)
@@ -180,7 +219,73 @@ func setSliceField(field reflect.Value, value string) error {
 		}
 		field.Set(reflect.ValueOf(slice))
 	case reflect.Int:
-		slice, err := parseIntSlice(value)
+		slice, err := parseIntSlice[int](value, 0)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Int8:
+		slice, err := parseIntSlice[int8](value, 8)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Int16:
+		slice, err := parseIntSlice[int16](value, 16)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Int32:
+		slice, err := parseIntSlice[int32](value, 32)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Int64:
+		slice, err := parseIntSlice[int64](value, 64)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Uint:
+		slice, err := parseUintSlice[uint](value, 0)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Uint8:
+		slice, err := parseUintSlice[uint8](value, 8)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Uint16:
+		slice, err := parseUintSlice[uint16](value, 16)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Uint32:
+		slice, err := parseUintSlice[uint32](value, 32)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Uint64:
+		slice, err := parseUintSlice[uint64](value, 64)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Float32:
+		slice, err := parseFloatSlice[float32](value, 32)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(slice))
+	case reflect.Float64:
+		slice, err := parseFloatSlice[float64](value, 64)
 		if err != nil {
 			return err
 		}
@@ -191,20 +296,23 @@ func setSliceField(field reflect.Value, value string) error {
 	return nil
 }
 
-func setStructField(field reflect.Value, value, formatTag string) error {
+func (e *Enviro) setStructField(field reflect.Value, value, formatTag string) error {
 	if field.Type() == reflect.TypeOf(time.Time{}) || field.Type().ConvertibleTo(reflect.TypeOf(time.Time{})) {
 		format, location := parseTimeFormatTag(formatTag)
-		return setTimeField(field, value, format, location)
+		return e.setTimeField(field, value, format, location)
 	}
 
 	if formatTag == "json" {
-		return setJsonField(field, value)
+		return e.setJsonField(field, value)
 	}
 
-	return fmt.Errorf("unsupported struct type: %s", field.Type().String())
+	if formatTag == "" {
+		formatTag = "-"
+	}
+	return fmt.Errorf("unsupported format: %q for %s", formatTag, field.Type().String())
 }
 
-func setTimeField(field reflect.Value, value, format, location string) error {
+func (e *Enviro) setTimeField(field reflect.Value, value, format, location string) error {
 	if format != "" {
 		loc := time.UTC
 		if location != "" {
@@ -231,7 +339,7 @@ func setTimeField(field reflect.Value, value, format, location string) error {
 	return nil
 }
 
-func setJsonField(field reflect.Value, value string) error {
+func (e *Enviro) setJsonField(field reflect.Value, value string) error {
 	ptrToStruct := reflect.New(field.Type()).Interface()
 	if err := json.Unmarshal([]byte(value), &ptrToStruct); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON to %s: %w", field.Type().String(), err)
