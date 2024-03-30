@@ -217,24 +217,21 @@ func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 
 func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) error {
 	elements := strings.Split(value, ",")
+	slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 
 	switch field.Type().Elem().Kind() {
 	case reflect.String:
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setStringField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setIntField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if field.Type() == reflect.TypeOf(net.IP(nil)) {
 			ip := net.ParseIP(value)
@@ -245,40 +242,34 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 			return nil
 		}
 
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setUintField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Float32, reflect.Float64:
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setFloatField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Slice:
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setSliceField(slice.Index(i), elem, formatTag); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Struct:
-		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
 			if err := e.setStructField(slice.Index(i), elem, formatTag); err != nil {
 				return err
 			}
 		}
-		field.Set(reflect.AppendSlice(field, slice))
 	default:
 		return fmt.Errorf("unsupported slice element type: %s", field.Type().Elem().Kind().String())
 	}
+
+	field.Set(reflect.AppendSlice(field, slice))
 	return nil
 }
 

@@ -16,7 +16,7 @@ type Config struct {
 		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
 		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
 	Number     *[]uint32     `enviro:"number"`
-	Host       []string      `enviro:"host"`
+	Host       []*string     `enviro:"host"`
 	Timeout    time.Duration `enviro:"timeout,required"`
 	Integer    int           `enviro:"integer"`
 	Time       []time.Time   `enviro:"time" envformat:"time:2006*01*02"`
