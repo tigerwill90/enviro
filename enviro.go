@@ -217,12 +217,16 @@ func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 
 func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) error {
 	elements := strings.Split(value, ",")
+
 	switch field.Type().Elem().Kind() {
 	case reflect.String:
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
-			elements[i] = strings.TrimSpace(elem)
+			if err := e.setStringField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+				return err
+			}
 		}
-		field.Set(reflect.AppendSlice(field, reflect.ValueOf(elements)))
+		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {

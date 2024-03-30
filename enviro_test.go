@@ -47,7 +47,7 @@ type JsonConfig struct {
 
 func TestX(t *testing.T) {
 	os.Setenv("TEST_TIMEOUT", "10s")
-	os.Setenv("TEST_HOST", "localhost")
+	os.Setenv("TEST_HOST", "localhost,foo")
 	os.Setenv("TEST_TIME", "2024*03*30,2024*03*31")
 	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"},{"foo":"baz"}`)
 	os.Setenv("TEST_FOO", "baz")
