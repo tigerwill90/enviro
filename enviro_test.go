@@ -15,7 +15,8 @@ type Config struct {
 		Port         uint          `enviro:"port"`
 		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
 		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
-	Number     uint32        `enviro:"number"`
+	Number     *[]uint32     `enviro:"number"`
+	Host       []string      `enviro:"host"`
 	Timeout    time.Duration `enviro:"timeout,required"`
 	Integer    int           `enviro:"integer"`
 	Time       []time.Time   `enviro:"time" envformat:"time:2006*01*02"`
@@ -50,12 +51,15 @@ func TestX(t *testing.T) {
 	os.Setenv("TEST_TIME", "2024*03*30,2024*03*31")
 	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"},{"foo":"baz"}`)
 	os.Setenv("TEST_FOO", "baz")
-	os.Setenv("TEST_NUMBER", "1")
+	os.Setenv("TEST_NUMBER", "1,2,3")
 	os.Setenv("TEST_ADDRESS", "127.0.0.1,127.0.0.2")
 
 	e := New()
 	e.SetEnvPrefix("test")
-	cfg := Config{}
+	cfg := Config{
+		Address: []net.IP{{127, 0, 0, 3}},
+		Number:  &[]uint32{9},
+	}
 	if err := e.Load(&cfg); err != nil {
 		t.Fatal(err)
 	}

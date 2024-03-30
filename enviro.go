@@ -120,8 +120,17 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 	}
 
 	var err error
-	// Create a new value of the element type to hold the converted value
-	newVal := reflect.New(elemType).Elem()
+	var newVal reflect.Value
+	if isPtr {
+		if field.IsNil() {
+			// Create a new value of the element type to hold the converted value
+			newVal = reflect.New(elemType).Elem()
+		} else {
+			newVal = field.Elem()
+		}
+	} else {
+		newVal = field
+	}
 
 	switch elemType.Kind() {
 	case reflect.String:
@@ -213,7 +222,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 		for i, elem := range elements {
 			elements[i] = strings.TrimSpace(elem)
 		}
-		field.Set(reflect.ValueOf(elements))
+		field.Set(reflect.AppendSlice(field, reflect.ValueOf(elements)))
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
@@ -221,7 +230,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 				return err
 			}
 		}
-		field.Set(slice)
+		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		if field.Type() == reflect.TypeOf(net.IP(nil)) {
 			ip := net.ParseIP(value)
@@ -238,7 +247,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 				return err
 			}
 		}
-		field.Set(slice)
+		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Float32, reflect.Float64:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
@@ -246,7 +255,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 				return err
 			}
 		}
-		field.Set(slice)
+		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Slice:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
@@ -254,7 +263,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 				return err
 			}
 		}
-		field.Set(slice)
+		field.Set(reflect.AppendSlice(field, slice))
 	case reflect.Struct:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
@@ -262,7 +271,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 				return err
 			}
 		}
-		field.Set(slice)
+		field.Set(reflect.AppendSlice(field, slice))
 	default:
 		return fmt.Errorf("unsupported slice element type: %s", field.Type().Elem().Kind().String())
 	}
