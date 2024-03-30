@@ -12,6 +12,12 @@ import (
 	"time"
 )
 
+type Parser interface {
+	Parse(value string) error
+}
+
+var parserType = reflect.TypeOf((*Parser)(nil)).Elem()
+
 type Enviro struct {
 	prefix string
 }
@@ -119,54 +125,64 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 		elemType = field.Type()
 	}
 
-	var err error
-	var newVal reflect.Value
+	var target reflect.Value
 	if isPtr {
 		if field.IsNil() {
 			// Create a new value of the element type to hold the converted value
-			newVal = reflect.New(elemType).Elem()
+			target = reflect.New(elemType).Elem()
 		} else {
-			newVal = field.Elem()
+			target = field.Elem()
 		}
 	} else {
-		newVal = field
+		target = field
+	}
+
+	var err error
+	// Check if the type implements the Parser interface
+	if target.Addr().Type().Implements(parserType) {
+		// The field implements Parser interface, delegate parsing to it
+		parser := target.Addr().Interface().(Parser)
+		err = parser.Parse(value)
+		goto SET_FIELD
 	}
 
 	switch elemType.Kind() {
 	case reflect.String:
-		err = e.setStringField(newVal, value)
+		err = e.setStringField(target, value)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		err = e.setIntField(newVal, value)
+		err = e.setIntField(target, value)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		err = e.setUintField(newVal, value)
+		err = e.setUintField(target, value)
 	case reflect.Float32, reflect.Float64:
-		err = e.setFloatField(newVal, value)
+		err = e.setFloatField(target, value)
 	case reflect.Bool:
-		err = e.setBoolField(newVal, value)
+		err = e.setBoolField(target, value)
 	case reflect.Struct:
-		err = e.setStructField(newVal, value, formatTag)
+		err = e.setStructField(target, value, formatTag)
 	case reflect.Slice:
-		err = e.setSliceField(newVal, value, formatTag)
+		err = e.setSliceField(target, value, formatTag)
 	default:
 		err = errors.New("unsupported field type")
 	}
 
+	//goland:noinspection GoSnakeCaseUsage
+SET_FIELD:
 	if err != nil {
 		return err
 	}
 
-	// If there was no error and the original field is a pointer, set the field to point to newVal
+	// If there was no error and the original field is a pointer, set the field to point to target
 	if isPtr {
-		field.Set(newVal.Addr()) // .Addr() gets the pointer to newVal
+		field.Set(target.Addr()) // .Addr() gets the pointer to target
 	} else {
-		field.Set(newVal) // Directly set the value if it's not a pointer
+		field.Set(target) // Directly set the value if it's not a pointer
 	}
 
 	return nil
 }
 
 func (e *Enviro) setStringField(field reflect.Value, value string) error {
-	field.SetString(value)
+	field.Set(reflect.ValueOf(value))
 	return nil
 }
 
@@ -219,17 +235,54 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 	elements := strings.Split(value, ",")
 	slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 
-	switch field.Type().Elem().Kind() {
+	isPtr := field.Type().Elem().Kind() == reflect.Ptr
+	var elemTyp reflect.Type
+	if isPtr {
+		elemTyp = field.Type().Elem().Elem()
+	} else {
+		elemTyp = field.Type().Elem()
+	}
+
+	if slice.Index(0).Addr().Type().Implements(parserType) || slice.Index(0).Type().Implements(parserType) {
+		for i, elem := range elements {
+			newVal := reflect.New(elemTyp).Elem()
+			parser := newVal.Addr().Interface().(Parser)
+			if err := parser.Parse(elem); err != nil {
+				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
+			}
+		}
+		field.Set(reflect.AppendSlice(field, slice))
+		return nil
+	}
+
+	switch elemTyp.Kind() {
 	case reflect.String:
 		for i, elem := range elements {
-			if err := e.setStringField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setStringField(newVal, strings.TrimSpace(elem)); err != nil {
 				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		for i, elem := range elements {
-			if err := e.setIntField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setIntField(newVal, strings.TrimSpace(elem)); err != nil {
 				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
@@ -242,31 +295,76 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 			return nil
 		}
 
-		for i, elem := range elements {
-			if err := e.setUintField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+		if field.Type() == reflect.TypeOf([]net.HardwareAddr(nil)) {
+			addr, err := net.ParseMAC(value)
+			if err != nil {
 				return err
+			}
+			field.Set(reflect.ValueOf(addr))
+			return nil
+		}
+
+		for i, elem := range elements {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setUintField(newVal, strings.TrimSpace(elem)); err != nil {
+				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	case reflect.Float32, reflect.Float64:
 		for i, elem := range elements {
-			if err := e.setFloatField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setFloatField(newVal, strings.TrimSpace(elem)); err != nil {
 				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
+			}
+		}
+	case reflect.Bool:
+		for i, elem := range elements {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setBoolField(newVal, strings.TrimSpace(elem)); err != nil {
+				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	case reflect.Slice:
 		for i, elem := range elements {
-			if err := e.setSliceField(slice.Index(i), elem, formatTag); err != nil {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setSliceField(newVal, elem, formatTag); err != nil {
 				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	case reflect.Struct:
 		for i, elem := range elements {
-			if err := e.setStructField(slice.Index(i), elem, formatTag); err != nil {
+			newVal := reflect.New(elemTyp).Elem()
+			if err := e.setStructField(newVal, elem, formatTag); err != nil {
 				return err
+			}
+			if isPtr {
+				slice.Index(i).Set(newVal.Addr())
+			} else {
+				slice.Index(i).Set(newVal)
 			}
 		}
 	default:
-		return fmt.Errorf("unsupported slice element type: %s", field.Type().Elem().Kind().String())
+		return fmt.Errorf("unsupported slice element type: %s", elemTyp.String())
 	}
 
 	field.Set(reflect.AppendSlice(field, slice))
@@ -277,6 +375,15 @@ func (e *Enviro) setStructField(field reflect.Value, value, formatTag string) er
 	if field.Type() == reflect.TypeOf(time.Time{}) {
 		format, location := parseTimeFormatTag(formatTag)
 		return e.setTimeField(field, value, format, location)
+	}
+
+	if field.Type() == reflect.TypeOf(time.Location{}) {
+		loc, err := time.LoadLocation(value)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(*loc))
+		return nil
 	}
 
 	if formatTag == "json" {
