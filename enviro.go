@@ -126,9 +126,9 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 	switch elemType.Kind() {
 	case reflect.String:
 		err = e.setStringField(newVal, value)
-	case reflect.Int, reflect.Int32, reflect.Int64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		err = e.setIntField(newVal, value)
-	case reflect.Uint, reflect.Uint32, reflect.Uint64:
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		err = e.setUintField(newVal, value)
 	case reflect.Float32, reflect.Float64:
 		err = e.setFloatField(newVal, value)
@@ -162,7 +162,7 @@ func (e *Enviro) setStringField(field reflect.Value, value string) error {
 }
 
 func (e *Enviro) setIntField(field reflect.Value, value string) error {
-	if field.Type() == reflect.TypeOf(time.Duration(0)) || field.Type().ConvertibleTo(reflect.TypeOf(time.Duration(0))) {
+	if field.Type() == reflect.TypeOf(time.Duration(0)) {
 		d, err := time.ParseDuration(value)
 		if err != nil {
 			return err
@@ -207,89 +207,55 @@ func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 }
 
 func (e *Enviro) setSliceField(field reflect.Value, value string) error {
-	if field.Type() == reflect.TypeOf([]net.IP(nil)) || field.Type().ConvertibleTo(reflect.TypeOf([]net.IP(nil))) {
-		fmt.Println("yolo")
-	}
-
+	elements := strings.Split(value, ",")
 	switch field.Type().Elem().Kind() {
 	case reflect.String:
-		slice, err := parseStringSlice(value, true)
-		if err != nil {
-			return err
+		for i, elem := range elements {
+			elements[i] = strings.TrimSpace(elem)
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Int:
-		slice, err := parseIntSlice[int](value, 0)
-		if err != nil {
-			return err
+		field.Set(reflect.ValueOf(elements))
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
+		for i, elem := range elements {
+			if err := e.setIntField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+				return err
+			}
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Int8:
-		slice, err := parseIntSlice[int8](value, 8)
-		if err != nil {
-			return err
+		field.Set(slice)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		if field.Type() == reflect.TypeOf(net.IP(nil)) {
+			ip := net.ParseIP(value)
+			if ip == nil {
+				return errors.New("invalid IP address")
+			}
+			field.Set(reflect.ValueOf(ip))
+			return nil
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Int16:
-		slice, err := parseIntSlice[int16](value, 16)
-		if err != nil {
-			return err
+
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
+		for i, elem := range elements {
+			if err := e.setUintField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+				return err
+			}
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Int32:
-		slice, err := parseIntSlice[int32](value, 32)
-		if err != nil {
-			return err
+		field.Set(slice)
+	case reflect.Float32, reflect.Float64:
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
+		for i, elem := range elements {
+			if err := e.setFloatField(slice.Index(i), strings.TrimSpace(elem)); err != nil {
+				return err
+			}
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Int64:
-		slice, err := parseIntSlice[int64](value, 64)
-		if err != nil {
-			return err
+		field.Set(slice)
+	case reflect.Slice:
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
+		for i, elem := range elements {
+			if err := e.setSliceField(slice.Index(i), elem); err != nil {
+				return err
+			}
 		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Uint:
-		slice, err := parseUintSlice[uint](value, 0)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Uint8:
-		slice, err := parseUintSlice[uint8](value, 8)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Uint16:
-		slice, err := parseUintSlice[uint16](value, 16)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Uint32:
-		slice, err := parseUintSlice[uint32](value, 32)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Uint64:
-		slice, err := parseUintSlice[uint64](value, 64)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Float32:
-		slice, err := parseFloatSlice[float32](value, 32)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
-	case reflect.Float64:
-		slice, err := parseFloatSlice[float64](value, 64)
-		if err != nil {
-			return err
-		}
-		field.Set(reflect.ValueOf(slice))
+		field.Set(slice)
+	case reflect.Struct:
 	default:
 		return fmt.Errorf("unsupported slice element type: %s", field.Type().Elem().Kind().String())
 	}
@@ -297,7 +263,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value string) error {
 }
 
 func (e *Enviro) setStructField(field reflect.Value, value, formatTag string) error {
-	if field.Type() == reflect.TypeOf(time.Time{}) || field.Type().ConvertibleTo(reflect.TypeOf(time.Time{})) {
+	if field.Type() == reflect.TypeOf(time.Time{}) {
 		format, location := parseTimeFormatTag(formatTag)
 		return e.setTimeField(field, value, format, location)
 	}
@@ -327,7 +293,7 @@ func (e *Enviro) setTimeField(field reflect.Value, value, format, location strin
 		if err != nil {
 			return err
 		}
-		field.Set(reflect.ValueOf(t).Convert(field.Type()))
+		field.Set(reflect.ValueOf(t))
 		return nil
 	}
 
@@ -335,7 +301,7 @@ func (e *Enviro) setTimeField(field reflect.Value, value, format, location strin
 	if err != nil {
 		return err
 	}
-	field.Set(reflect.ValueOf(t).Convert(field.Type()))
+	field.Set(reflect.ValueOf(t))
 	return nil
 }
 
