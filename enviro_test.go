@@ -15,10 +15,12 @@ type Config struct {
 		Port         uint          `enviro:"port"`
 		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
 		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
-	Number  []uint32      `enviro:"number"`
-	Timeout time.Duration `enviro:"timeout,required"`
-	Integer int           `enviro:"integer"`
-	Address []net.IP      `enviro:"address"`
+	Number     uint32        `enviro:"number"`
+	Timeout    time.Duration `enviro:"timeout,required"`
+	Integer    int           `enviro:"integer"`
+	Time       []time.Time   `enviro:"time" envformat:"time:2006*01*02"`
+	Address    []net.IP      `enviro:"address"`
+	JsonConfig []JsonConfig  `enviro:"json_config" envformat:"json"`
 	// NestedConfig NestedConfig
 }
 
@@ -40,16 +42,15 @@ func (t TimeAlias) String() string {
 
 type JsonConfig struct {
 	Foo string `json:"foo"`
-	Bar string `json:"bar"`
 }
 
 func TestX(t *testing.T) {
 	os.Setenv("TEST_TIMEOUT", "10s")
 	os.Setenv("TEST_HOST", "localhost")
-	os.Setenv("TEST_TIME", "2024*03*30")
-	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"}`)
+	os.Setenv("TEST_TIME", "2024*03*30,2024*03*31")
+	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"},{"foo":"baz"}`)
 	os.Setenv("TEST_FOO", "baz")
-	os.Setenv("TEST_NUMBER", "1,2,3")
+	os.Setenv("TEST_NUMBER", "1")
 	os.Setenv("TEST_ADDRESS", "127.0.0.1,127.0.0.2")
 
 	e := New()

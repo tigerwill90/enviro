@@ -137,7 +137,7 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 	case reflect.Struct:
 		err = e.setStructField(newVal, value, formatTag)
 	case reflect.Slice:
-		err = e.setSliceField(newVal, value)
+		err = e.setSliceField(newVal, value, formatTag)
 	default:
 		err = errors.New("unsupported field type")
 	}
@@ -206,7 +206,7 @@ func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 	return nil
 }
 
-func (e *Enviro) setSliceField(field reflect.Value, value string) error {
+func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) error {
 	elements := strings.Split(value, ",")
 	switch field.Type().Elem().Kind() {
 	case reflect.String:
@@ -250,12 +250,19 @@ func (e *Enviro) setSliceField(field reflect.Value, value string) error {
 	case reflect.Slice:
 		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 		for i, elem := range elements {
-			if err := e.setSliceField(slice.Index(i), elem); err != nil {
+			if err := e.setSliceField(slice.Index(i), elem, formatTag); err != nil {
 				return err
 			}
 		}
 		field.Set(slice)
 	case reflect.Struct:
+		slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
+		for i, elem := range elements {
+			if err := e.setStructField(slice.Index(i), elem, formatTag); err != nil {
+				return err
+			}
+		}
+		field.Set(slice)
 	default:
 		return fmt.Errorf("unsupported slice element type: %s", field.Type().Elem().Kind().String())
 	}
