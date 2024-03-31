@@ -1,9 +1,14 @@
+[![Go Reference](https://pkg.go.dev/badge/github.com/tigerwill90/enviro.svg)](https://pkg.go.dev/github.com/tigerwill90/enviro)
+[![tests](https://github.com/tigerwill90/enviro/actions/workflows/tests.yaml/badge.svg)](https://github.com/tigerwill90/enviro/actions?query=workflow%3Atests)
+[![codecov](https://codecov.io/gh/tigerwill90/enviro/branch/master/graph/badge.svg?token=09nfd7v0Bl)](https://codecov.io/gh/tigerwill90/enviro)
+![GitHub release (latest SemVer)](https://img.shields.io/github/v/release/tigerwill90/enviro)
+![GitHub go.mod Go version](https://img.shields.io/github/go-mod/go-version/tigerwill90/enviro)
 # Enviro
 
 Enviro is a Go library designed to simplify the process of loading and parsing environment variables into Go structs. It supports a wide range of field types, nested structs, custom types, and more, with an emphasis on convenience and ease of use.
 
 ## Disclaimer
-The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
+Enviro is currently in a very early stage of development. As such, the API is not yet stabilized, and breaking changes may occur before we reach v1.0.0.
 
 ## Features
 

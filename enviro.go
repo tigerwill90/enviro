@@ -14,24 +14,42 @@ import (
 	"time"
 )
 
+// ParseField is an interface that defines how to parse environment variable values.
+// Types that implement ParseField can define their own logic to parse the string representation of
+// an environment variable into the appropriate Go type.
 type ParseField interface {
+	// ParseField parses the provided string value and sets the receiver accordingly.
+	// It returns an error if the value cannot be parsed into the expected type.
 	ParseField(value string) error
 }
 
 var parserType = reflect.TypeOf((*ParseField)(nil)).Elem()
 
+// Enviro facilitates the loading and parsing of environment variables into Go structs.
+// It supports custom prefixes for environment variables, nested struct parsing, and fields of various types.
 type Enviro struct {
 	prefix string
 }
 
+// New creates and returns a new instance of the Enviro parser.
 func New() *Enviro {
 	return &Enviro{}
 }
 
+// SetEnvPrefix sets a custom prefix that will be prepended to all environment variable names
+// when parsing. Fields with the `enviro:your_var_name,omitprefix` will ignore the prefix.
 func (e *Enviro) SetEnvPrefix(prefix string) {
 	e.prefix = prefix
 }
 
+// ParseEnvWithPrefix parses environment variables into the provided struct based on struct tags.
+// It uses the specified prefix to look up environment variables, allowing for nested struct parsing
+// and the application of custom parsing logic for specific fields. The function returns an error
+// if parsing fails for any field, or if the provided `config` is not a pointer to a struct.
+//
+// The `config` parameter should be a pointer to the struct you wish to populate with environment
+// variable values. If the struct contains nested structs and the tag `enviro:"nested:your_prefix"`, the prefix is
+// concatenated with "_" and the nested struct's tag to form the complete environment variable name.
 func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 	val := reflect.ValueOf(config)
 	if val.Kind() != reflect.Ptr || val.IsNil() {
@@ -104,6 +122,8 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 	return nil
 }
 
+// ParseEnv is a convenience method that calls ParseEnvWithPrefix with the base prefix set on the Enviro
+// instance.
 func (e *Enviro) ParseEnv(config any) error {
 	return e.ParseEnvWithPrefix(config, e.prefix)
 }
