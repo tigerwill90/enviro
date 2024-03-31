@@ -1,3 +1,7 @@
+// Copyright 2024 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a MIT License that can be found
+// at https://github.com/tigerwill90/enviro/blob/master/LICENSE.txt.
+
 package enviro
 
 import (

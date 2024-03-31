@@ -1,3 +1,7 @@
+// Copyright © 2014 Steve Francia <spf@spf13.com>.
+// Portions of this code were derived from the Viper project (https://github.com/spf13/viper)
+// under the MIT License.
+
 package enviro
 
 import (

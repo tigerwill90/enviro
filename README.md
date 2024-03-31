@@ -34,14 +34,14 @@ Here's a quick example to show how you can use Enviro to load environment variab
 package main
 
 import (
-	"enviro"
+	"github.com/tigerwill90/enviro"
 	"log"
 	"net/url"
 	"time"
 )
 
 type Config struct {
-	Port  int            `enviro:"port"`                   // MYAPP_PORT=8080
+	Port  int            `enviro:"port" envdefault:"8080"` // MYAPP_PORT=8080
 	Host  string         `enviro:"host,required"`          // MYAPP_HOST=localhost
 	Local *time.Location `enviro:"tz,required,omitprefix"` // TZ=America/New_York
 	Debug bool           `enviro:"debug"`                  // MYAPP_DEBUG=true
@@ -55,7 +55,7 @@ func main() {
 	env := enviro.New()
 	env.SetEnvPrefix("MYAPP")
 	cfg := Config{
-		Port: 8080, // Set a default value to optional fields
+		// Port: 8080, or set a default value directly in the struct
 	}
 	if err := env.ParseEnv(&cfg); err != nil {
 		log.Fatalf("Error loading config: %s", err)

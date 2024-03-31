@@ -1,3 +1,7 @@
+// Copyright 2024 Sylvain Müller. All rights reserved.
+// Mount of this source code is governed by a MIT License that can be found
+// at https://github.com/tigerwill90/enviro/blob/master/LICENSE.txt.
+
 package enviro
 
 import (
@@ -64,6 +68,7 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 		fieldType := typ.Field(i)
 		tag := fieldType.Tag.Get("enviro")
 		envOpt := fieldType.Tag.Get("envopt")
+		envDef := fieldType.Tag.Get("envdefault")
 
 		if tag == "" || strings.HasPrefix(tag, "nested:") {
 			if field.CanSet() {
@@ -106,14 +111,18 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 		}
 
 		envValue, exists := os.LookupEnv(strings.ToUpper(envKey))
-		if !exists && required {
+		if required && !exists {
 			return fmt.Errorf("missing required environment variable: %s", strings.ToUpper(envKey))
 		}
-		if envValue == "" && required {
+		if required && envValue == "" {
 			return fmt.Errorf("empty required environment variable: %s", strings.ToUpper(envKey))
 		}
 
-		if exists {
+		if envValue == "" {
+			envValue = envDef
+		}
+
+		if exists || envValue != "" {
 			if err := e.setField(field, envValue, envOpt); err != nil {
 				return fmt.Errorf("failed to parse environment variable %s: %w", strings.ToUpper(envKey), err)
 			}
