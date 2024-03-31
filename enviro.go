@@ -128,6 +128,13 @@ func (e *Enviro) ParseEnv(config any) error {
 	return e.ParseEnvWithPrefix(config, e.prefix)
 }
 
+// MustParseEnv is a convenience method that calls ParseEnv and panics if an error occurs.
+func (e *Enviro) MustParseEnv(config any) {
+	if err := e.ParseEnv(config); err != nil {
+		panic(err)
+	}
+}
+
 func parseTag(tag string) (key string, omitprefix, required bool) {
 	parts := strings.Split(tag, ",")
 	key = strings.TrimSpace(parts[0])
