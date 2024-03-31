@@ -15,13 +15,30 @@ type Config struct {
 		Port         uint          `enviro:"port"`
 		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
 		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
-	Bytes []*BytesSize2 `enviro:"bytes"`
-	// JsonConfig []JsonConfig `enviro:"json_config" envformat:"json"`
-	// NestedConfig NestedConfig
+	Host         string                 `enviro:"host,required"`
+	Bytes        []BytesSize            `enviro:"bytes"`
+	JsonConfig   map[string]interface{} `enviro:"json_config" envformat:"json"`
+	NestedConfig NestedConfig           `enviro:"prefix:my_config"`
+}
+
+type Employees struct {
+	Employees []Employee `yaml:"employees"`
+}
+
+type Employee struct {
+	ID         int    `yaml:"id"`
+	Name       string `yaml:"name"`
+	Role       string `yaml:"role"`
+	Department string `yaml:"department"`
 }
 
 type NestedConfig struct {
-	Foo string `enviro:"foo"`
+	Foo string        `enviro:"foo"`
+	Baz NestedConfig2 `enviro:"prefix:and"`
+}
+
+type NestedConfig2 struct {
+	Bar string `enviro:"bar"`
 }
 
 type DurationAlias time.Duration
@@ -42,10 +59,11 @@ type JsonConfig struct {
 
 func TestX(t *testing.T) {
 	os.Setenv("TEST_TIMEOUT", "10s")
-	os.Setenv("TEST_HOST", "localhost,foo")
+	os.Setenv("TEST_HOST", "localhost")
 	os.Setenv("TEST_TIME", "2024*03*30,2024*03*31")
-	os.Setenv("TEST_JSON_CONFIG", `{"foo":"bar"},{"foo":"baz"}`)
-	os.Setenv("TEST_FOO", "baz")
+	os.Setenv("TEST_JSON_CONFIG", `{"foo": "bar"}`)
+	os.Setenv("TEST_MY_CONFIG_FOO", "foo")
+	os.Setenv("TEST_MY_CONFIG_AND_BAR", "bar")
 	os.Setenv("TEST_NUMBER", "1,2,3")
 	os.Setenv("TEST_ADDRESS", "127.0.0.1,127.0.0.2")
 	os.Setenv("TEST_LOCATION", "UTC")
@@ -54,7 +72,7 @@ func TestX(t *testing.T) {
 	e := New()
 	e.SetEnvPrefix("test")
 	cfg := Config{}
-	if err := e.Load(&cfg); err != nil {
+	if err := e.ParseEnv(&cfg); err != nil {
 		t.Fatal(err)
 	}
 
@@ -66,13 +84,13 @@ func TestY(t *testing.T) {
 	v.SetEnvPrefix("test")
 
 	var b BytesSize
-	// fmt.Println(b.Parse(""))
+	// fmt.Println(b.ParseField(""))
 	fmt.Println(b)
 }
 
 type BytesSize uint64
 
-func (b *BytesSize) Parse(value string) error {
+func (b *BytesSize) ParseField(value string) error {
 	f, err := humanize.ParseBytes(value)
 	if err != nil {
 		return err
@@ -81,4 +99,6 @@ func (b *BytesSize) Parse(value string) error {
 	return nil
 }
 
-type BytesSize2 map[string]int
+func (b BytesSize) String() string {
+	return humanize.Bytes(uint64(b))
+}

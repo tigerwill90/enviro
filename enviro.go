@@ -12,11 +12,11 @@ import (
 	"time"
 )
 
-type Parser interface {
-	Parse(value string) error
+type ParseField interface {
+	ParseField(value string) error
 }
 
-var parserType = reflect.TypeOf((*Parser)(nil)).Elem()
+var parserType = reflect.TypeOf((*ParseField)(nil)).Elem()
 
 type Enviro struct {
 	prefix string
@@ -30,7 +30,7 @@ func (e *Enviro) SetEnvPrefix(prefix string) {
 	e.prefix = prefix
 }
 
-func (e *Enviro) Load(config any) error {
+func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 	val := reflect.ValueOf(config)
 	if val.Kind() != reflect.Ptr || val.IsNil() {
 		return errors.New("config must be a pointer to a struct")
@@ -45,7 +45,7 @@ func (e *Enviro) Load(config any) error {
 		tag := fieldType.Tag.Get("enviro")
 		envFormatTag := fieldType.Tag.Get("envformat")
 
-		if tag == "" {
+		if tag == "" || strings.HasPrefix(tag, "prefix:") {
 			if field.CanSet() {
 				// Handling nested structs or pointers to structs
 				if fieldType.Type.Kind() == reflect.Struct || (fieldType.Type.Kind() == reflect.Ptr && fieldType.Type.Elem().Kind() == reflect.Struct) {
@@ -58,9 +58,9 @@ func (e *Enviro) Load(config any) error {
 					// Recursively load the nested struct or the newly instantiated struct
 					var err error
 					if nestedStruct.Kind() == reflect.Ptr {
-						err = e.Load(nestedStruct.Interface())
+						err = e.ParseEnvWithPrefix(nestedStruct.Interface(), prefix+"_"+strings.TrimPrefix(tag, "prefix:"))
 					} else {
-						err = e.Load(nestedStruct.Addr().Interface())
+						err = e.ParseEnvWithPrefix(nestedStruct.Addr().Interface(), prefix+"_"+strings.TrimPrefix(tag, "prefix:"))
 					}
 
 					if err != nil {
@@ -75,8 +75,8 @@ func (e *Enviro) Load(config any) error {
 		}
 
 		envKey, required := parseTag(tag)
-		if e.prefix != "" {
-			envKey = e.prefix + "_" + envKey
+		if prefix != "" {
+			envKey = prefix + "_" + envKey
 		}
 
 		envValue, exists := os.LookupEnv(strings.ToUpper(envKey))
@@ -86,12 +86,15 @@ func (e *Enviro) Load(config any) error {
 
 		if exists {
 			if err := e.setField(field, envValue, envFormatTag); err != nil {
-				return err
+				return fmt.Errorf("failed to parse environment variable %s: %w", strings.ToUpper(envKey), err)
 			}
 		}
 	}
-
 	return nil
+}
+
+func (e *Enviro) ParseEnv(config any) error {
+	return e.ParseEnvWithPrefix(config, e.prefix)
 }
 
 func parseTag(tag string) (key string, required bool) {
@@ -138,11 +141,11 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 	}
 
 	var err error
-	// Check if the type implements the Parser interface
+	// Check if the type implements the ParseField interface
 	if target.Addr().Type().Implements(parserType) {
-		// The field implements Parser interface, delegate parsing to it
-		parser := target.Addr().Interface().(Parser)
-		err = parser.Parse(value)
+		// The field implements ParseField interface, delegate parsing to it
+		parser := target.Addr().Interface().(ParseField)
+		err = parser.ParseField(value)
 		goto SET_FIELD
 	}
 
@@ -161,6 +164,8 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 		err = e.setStructField(target, value, formatTag)
 	case reflect.Slice:
 		err = e.setSliceField(target, value, formatTag)
+	case reflect.Map:
+		err = e.setMapField(target, value, formatTag)
 	default:
 		err = errors.New("unsupported field type")
 	}
@@ -246,8 +251,8 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 	if slice.Index(0).Addr().Type().Implements(parserType) || slice.Index(0).Type().Implements(parserType) {
 		for i, elem := range elements {
 			newVal := reflect.New(elemTyp).Elem()
-			parser := newVal.Addr().Interface().(Parser)
-			if err := parser.Parse(elem); err != nil {
+			parser := newVal.Addr().Interface().(ParseField)
+			if err := parser.ParseField(elem); err != nil {
 				return err
 			}
 			if isPtr {
@@ -386,14 +391,27 @@ func (e *Enviro) setStructField(field reflect.Value, value, formatTag string) er
 		return nil
 	}
 
-	if formatTag == "json" {
+	switch formatTag {
+	case "json":
 		return e.setJsonField(field, value)
 	}
 
 	if formatTag == "" {
 		formatTag = "-"
 	}
-	return fmt.Errorf("unsupported format: %q for %s", formatTag, field.Type().String())
+	return fmt.Errorf("unsupported format %q for %s", formatTag, field.Type().String())
+}
+
+func (e *Enviro) setMapField(field reflect.Value, value, formatTag string) error {
+	switch formatTag {
+	case "json":
+		return e.setJsonField(field, value)
+	}
+
+	if formatTag == "" {
+		formatTag = "-"
+	}
+	return fmt.Errorf("unsupported format %q for %s", formatTag, field.Type().String())
 }
 
 func (e *Enviro) setTimeField(field reflect.Value, value, format, location string) error {
@@ -424,10 +442,10 @@ func (e *Enviro) setTimeField(field reflect.Value, value, format, location strin
 }
 
 func (e *Enviro) setJsonField(field reflect.Value, value string) error {
-	ptrToStruct := reflect.New(field.Type()).Interface()
-	if err := json.Unmarshal([]byte(value), &ptrToStruct); err != nil {
+	v := reflect.New(field.Type()).Interface()
+	if err := json.Unmarshal([]byte(value), &v); err != nil {
 		return fmt.Errorf("failed to unmarshal JSON to %s: %w", field.Type().String(), err)
 	}
-	field.Set(reflect.ValueOf(ptrToStruct).Elem())
+	field.Set(reflect.ValueOf(v).Elem())
 	return nil
 }
