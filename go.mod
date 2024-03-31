@@ -1,4 +1,4 @@
-module enviro
+module github.com/tigerwill90/enviro
 
 go 1.22
 
