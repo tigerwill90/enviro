@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"net"
+	"net/url"
 	"os"
 	"reflect"
 	"strconv"
@@ -43,9 +45,9 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 		field := val.Field(i)
 		fieldType := typ.Field(i)
 		tag := fieldType.Tag.Get("enviro")
-		envFormatTag := fieldType.Tag.Get("envformat")
+		envOpt := fieldType.Tag.Get("envopt")
 
-		if tag == "" || strings.HasPrefix(tag, "prefix:") {
+		if tag == "" || strings.HasPrefix(tag, "nested:") {
 			if field.CanSet() {
 				// Handling nested structs or pointers to structs
 				if fieldType.Type.Kind() == reflect.Struct || (fieldType.Type.Kind() == reflect.Ptr && fieldType.Type.Elem().Kind() == reflect.Struct) {
@@ -55,12 +57,18 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 						nestedStruct.Set(reflect.New(fieldType.Type.Elem()))
 					}
 
+					var envPrefix string
+					if prefix != "" {
+						envPrefix = prefix + "_"
+					}
+					envPrefix += strings.TrimPrefix(tag, "nested:")
+
 					// Recursively load the nested struct or the newly instantiated struct
 					var err error
 					if nestedStruct.Kind() == reflect.Ptr {
-						err = e.ParseEnvWithPrefix(nestedStruct.Interface(), prefix+"_"+strings.TrimPrefix(tag, "prefix:"))
+						err = e.ParseEnvWithPrefix(nestedStruct.Interface(), envPrefix)
 					} else {
-						err = e.ParseEnvWithPrefix(nestedStruct.Addr().Interface(), prefix+"_"+strings.TrimPrefix(tag, "prefix:"))
+						err = e.ParseEnvWithPrefix(nestedStruct.Addr().Interface(), envPrefix)
 					}
 
 					if err != nil {
@@ -74,8 +82,8 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 			continue
 		}
 
-		envKey, required := parseTag(tag)
-		if prefix != "" {
+		envKey, omitprefix, required := parseTag(tag)
+		if !omitprefix && prefix != "" {
 			envKey = prefix + "_" + envKey
 		}
 
@@ -83,9 +91,12 @@ func (e *Enviro) ParseEnvWithPrefix(config any, prefix string) error {
 		if !exists && required {
 			return fmt.Errorf("missing required environment variable: %s", strings.ToUpper(envKey))
 		}
+		if envValue == "" && required {
+			return fmt.Errorf("empty required environment variable: %s", strings.ToUpper(envKey))
+		}
 
 		if exists {
-			if err := e.setField(field, envValue, envFormatTag); err != nil {
+			if err := e.setField(field, envValue, envOpt); err != nil {
 				return fmt.Errorf("failed to parse environment variable %s: %w", strings.ToUpper(envKey), err)
 			}
 		}
@@ -97,12 +108,28 @@ func (e *Enviro) ParseEnv(config any) error {
 	return e.ParseEnvWithPrefix(config, e.prefix)
 }
 
-func parseTag(tag string) (key string, required bool) {
+func parseTag(tag string) (key string, omitprefix, required bool) {
 	parts := strings.Split(tag, ",")
 	key = strings.TrimSpace(parts[0])
-	if len(parts) > 1 && strings.TrimSpace(parts[1]) == "required" {
-		required = true
+	if len(parts) > 2 {
+		if strings.TrimSpace(parts[1]) == "required" {
+			required = true
+		}
+		if strings.TrimSpace(parts[2]) == "omitprefix" {
+			omitprefix = true
+		}
+		return
 	}
+
+	if len(parts) > 1 {
+		if strings.TrimSpace(parts[1]) == "required" {
+			required = true
+		}
+		if strings.TrimSpace(parts[1]) == "omitprefix" {
+			omitprefix = true
+		}
+	}
+
 	return
 }
 
@@ -117,7 +144,46 @@ func parseTimeFormatTag(tag string) (format, location string) {
 	return
 }
 
-func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
+func parseFileFormatTag(tag string) (flag int, perm os.FileMode) {
+	// Default to read-only if no specific options are provided
+	flag = os.O_RDONLY // Default flag
+	perm = 0666        // Default permission for new files
+
+	if strings.HasPrefix(tag, "file:") {
+		options := strings.TrimPrefix(tag, "file:")
+		parts := strings.Split(options, ",")
+
+		// Assume the first part specifies flags and the second part specifies permissions
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			opts := strings.Split(part, "|")
+			for _, opt := range opts {
+				switch strings.TrimSpace(opt) {
+				case "ro":
+					flag = os.O_RDONLY
+				case "wo":
+					flag = os.O_WRONLY
+				case "rw":
+					flag = os.O_RDWR
+				case "create":
+					flag |= os.O_CREATE
+				case "truncate":
+					flag |= os.O_TRUNC
+				case "append":
+					flag |= os.O_APPEND
+				default:
+					// Attempt to parse permission if it's not a known flag
+					if permValue, err := strconv.ParseUint(opt, 8, 32); err == nil {
+						perm = os.FileMode(permValue)
+					}
+				}
+			}
+		}
+	}
+	return flag, perm
+}
+
+func (e *Enviro) setField(field reflect.Value, value, opt string) error {
 
 	// Determine if the field is a pointer and get the element type
 	isPtr := field.Type().Kind() == reflect.Ptr
@@ -161,11 +227,11 @@ func (e *Enviro) setField(field reflect.Value, value, formatTag string) error {
 	case reflect.Bool:
 		err = e.setBoolField(target, value)
 	case reflect.Struct:
-		err = e.setStructField(target, value, formatTag)
+		err = e.setStructField(target, value, opt)
 	case reflect.Slice:
-		err = e.setSliceField(target, value, formatTag)
+		err = e.setSliceField(target, value, opt)
 	case reflect.Map:
-		err = e.setMapField(target, value, formatTag)
+		err = e.setMapField(target, value, opt)
 	default:
 		err = errors.New("unsupported field type")
 	}
@@ -236,7 +302,7 @@ func (e *Enviro) setBoolField(field reflect.Value, value string) error {
 	return nil
 }
 
-func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) error {
+func (e *Enviro) setSliceField(field reflect.Value, value, opt string) error {
 	elements := strings.Split(value, ",")
 	slice := reflect.MakeSlice(field.Type(), len(elements), len(elements))
 
@@ -347,7 +413,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 	case reflect.Slice:
 		for i, elem := range elements {
 			newVal := reflect.New(elemTyp).Elem()
-			if err := e.setSliceField(newVal, elem, formatTag); err != nil {
+			if err := e.setSliceField(newVal, elem, opt); err != nil {
 				return err
 			}
 			if isPtr {
@@ -359,7 +425,7 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 	case reflect.Struct:
 		for i, elem := range elements {
 			newVal := reflect.New(elemTyp).Elem()
-			if err := e.setStructField(newVal, elem, formatTag); err != nil {
+			if err := e.setStructField(newVal, elem, opt); err != nil {
 				return err
 			}
 			if isPtr {
@@ -376,55 +442,69 @@ func (e *Enviro) setSliceField(field reflect.Value, value, formatTag string) err
 	return nil
 }
 
-func (e *Enviro) setStructField(field reflect.Value, value, formatTag string) error {
-	if field.Type() == reflect.TypeOf(time.Time{}) {
-		format, location := parseTimeFormatTag(formatTag)
-		return e.setTimeField(field, value, format, location)
-	}
+func (e *Enviro) setStructField(field reflect.Value, value, opt string) error {
 
-	if field.Type() == reflect.TypeOf(time.Location{}) {
+	switch field.Type() {
+	case reflect.TypeOf(time.Time{}):
+		format, location := parseTimeFormatTag(opt)
+		return e.setTimeField(field, value, format, location)
+	case reflect.TypeOf(time.Location{}):
 		loc, err := time.LoadLocation(value)
 		if err != nil {
 			return err
 		}
 		field.Set(reflect.ValueOf(*loc))
 		return nil
+	case reflect.TypeOf(url.URL{}):
+		u, err := url.Parse(value)
+		if err != nil {
+			return err
+		}
+		field.Set(reflect.ValueOf(*u))
+		return nil
+	case reflect.TypeOf(os.File{}):
+		flag, perm := parseFileFormatTag(opt)
+		return e.setFileField(field, value, flag, perm)
 	}
 
-	switch formatTag {
+	switch opt {
 	case "json":
 		return e.setJsonField(field, value)
+	case "yaml":
+		return e.setYamlField(field, value)
 	}
 
-	if formatTag == "" {
-		formatTag = "-"
+	if opt == "" {
+		opt = "-"
 	}
-	return fmt.Errorf("unsupported format %q for %s", formatTag, field.Type().String())
+	return fmt.Errorf("unsupported format %q for %s", opt, field.Type().String())
 }
 
-func (e *Enviro) setMapField(field reflect.Value, value, formatTag string) error {
-	switch formatTag {
+func (e *Enviro) setMapField(field reflect.Value, value, opt string) error {
+	switch opt {
 	case "json":
 		return e.setJsonField(field, value)
+	case "yaml":
+		return e.setYamlField(field, value)
 	}
 
-	if formatTag == "" {
-		formatTag = "-"
+	if opt == "" {
+		opt = "-"
 	}
-	return fmt.Errorf("unsupported format %q for %s", formatTag, field.Type().String())
+	return fmt.Errorf("unsupported format %q for %s", opt, field.Type().String())
 }
 
 func (e *Enviro) setTimeField(field reflect.Value, value, format, location string) error {
-	if format != "" {
-		loc := time.UTC
-		if location != "" {
-			var err error
-			loc, err = time.LoadLocation(location)
-			if err != nil {
-				return err
-			}
+	loc := time.UTC
+	if location != "" {
+		var err error
+		loc, err = time.LoadLocation(location)
+		if err != nil {
+			return err
 		}
+	}
 
+	if format != "" {
 		t, err := time.ParseInLocation(format, value, loc)
 		if err != nil {
 			return err
@@ -433,11 +513,20 @@ func (e *Enviro) setTimeField(field reflect.Value, value, format, location strin
 		return nil
 	}
 
-	t, err := parseDateWith(value, time.UTC, timeFormats)
+	t, err := parseDateWith(value, timeFormats, loc)
 	if err != nil {
 		return err
 	}
 	field.Set(reflect.ValueOf(t))
+	return nil
+}
+
+func (e *Enviro) setFileField(field reflect.Value, value string, flag int, perm os.FileMode) error {
+	f, err := os.OpenFile(value, flag, perm)
+	if err != nil {
+		return err
+	}
+	field.Set(reflect.ValueOf(*f))
 	return nil
 }
 
@@ -447,5 +536,26 @@ func (e *Enviro) setJsonField(field reflect.Value, value string) error {
 		return fmt.Errorf("failed to unmarshal JSON to %s: %w", field.Type().String(), err)
 	}
 	field.Set(reflect.ValueOf(v).Elem())
+	return nil
+}
+
+func (e *Enviro) setYamlField(field reflect.Value, value string) error {
+	var addr reflect.Value
+	if field.Kind() == reflect.Ptr && !field.IsNil() {
+		// Field is a non-nil pointer, so we can work directly with its element
+		addr = field
+	} else if field.CanAddr() {
+		// Field is addressable (but not a pointer), so we get its address
+		addr = field.Addr()
+	} else {
+		// Field is neither a non-nil pointer nor addressable; this should never happen.
+		return fmt.Errorf("failed to unmarshal YAML to %s: field is not addressable", field.Type().String())
+	}
+
+	// Unmarshal YAML into the addressable field or the element pointed to by the field
+	if err := yaml.Unmarshal([]byte(value), addr.Interface()); err != nil {
+		return fmt.Errorf("failed to unmarshal YAML to %s: %w", field.Type().String(), err)
+	}
+
 	return nil
 }

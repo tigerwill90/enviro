@@ -1,104 +1,155 @@
 package enviro
 
 import (
-	"fmt"
-	"github.com/dustin/go-humanize"
-	"github.com/spf13/viper"
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
 
-type Config struct {
-	/*	Timeout      time.Duration `enviro:"timeout,required"`
-		Host         string        `enviro:"host,required"`
-		Port         uint          `enviro:"port"`
-		Time         time.Time     `enviro:"time" envformat:"time:2006*01*02,Europe/Berlin"`
-		JsonConfig   *JsonConfig   `enviro:"json_config" envformat:"json"`*/
-	Host         string                 `enviro:"host,required"`
-	Bytes        []BytesSize            `enviro:"bytes"`
-	JsonConfig   map[string]interface{} `enviro:"json_config" envformat:"json"`
-	NestedConfig NestedConfig           `enviro:"prefix:my_config"`
-}
-
-type Employees struct {
-	Employees []Employee `yaml:"employees"`
-}
-
-type Employee struct {
-	ID         int    `yaml:"id"`
-	Name       string `yaml:"name"`
-	Role       string `yaml:"role"`
-	Department string `yaml:"department"`
-}
-
-type NestedConfig struct {
-	Foo string        `enviro:"foo"`
-	Baz NestedConfig2 `enviro:"prefix:and"`
-}
-
-type NestedConfig2 struct {
-	Bar string `enviro:"bar"`
-}
-
-type DurationAlias time.Duration
-
-func (d DurationAlias) String() string {
-	return time.Duration(d).String()
-}
-
-type TimeAlias time.Time
-
-func (t TimeAlias) String() string {
-	return time.Time(t).String()
-}
-
-type JsonConfig struct {
-	Foo string `json:"foo"`
-}
-
-func TestX(t *testing.T) {
-	os.Setenv("TEST_TIMEOUT", "10s")
-	os.Setenv("TEST_HOST", "localhost")
-	os.Setenv("TEST_TIME", "2024*03*30,2024*03*31")
-	os.Setenv("TEST_JSON_CONFIG", `{"foo": "bar"}`)
-	os.Setenv("TEST_MY_CONFIG_FOO", "foo")
-	os.Setenv("TEST_MY_CONFIG_AND_BAR", "bar")
-	os.Setenv("TEST_NUMBER", "1,2,3")
-	os.Setenv("TEST_ADDRESS", "127.0.0.1,127.0.0.2")
-	os.Setenv("TEST_LOCATION", "UTC")
-	os.Setenv("TEST_BYTES", "10Mb")
-
-	e := New()
-	e.SetEnvPrefix("test")
-	cfg := Config{}
-	if err := e.ParseEnv(&cfg); err != nil {
-		t.Fatal(err)
+func TestParseEnvSimple(t *testing.T) {
+	type Config struct {
+		Name      string `enviro:"name"`
+		Age       int    `enviro:"age"`
+		IsMarried bool   `enviro:"is_married"`
 	}
 
-	fmt.Printf("%+v\n", cfg)
+	os.Setenv("NAME", "John Doe")
+	os.Setenv("AGE", "30")
+	os.Setenv("IS_MARRIED", "true")
+	defer func() {
+		os.Unsetenv("NAME")
+		os.Unsetenv("AGE")
+		os.Unsetenv("IS_MARRIED")
+	}()
+
+	expected := Config{
+		Name:      "John Doe",
+		Age:       30,
+		IsMarried: true,
+	}
+
+	var config Config
+	e := New()
+	if err := e.ParseEnv(&config); err != nil {
+		t.Errorf("Failed to parse environment variables: %s", err)
+	}
+
+	if !reflect.DeepEqual(config, expected) {
+		t.Errorf("Expected %+v, got %+v", expected, config)
+	}
 }
 
-func TestY(t *testing.T) {
-	v := viper.New()
-	v.SetEnvPrefix("test")
+func TestParseEnvNestedWithoutPrefix(t *testing.T) {
+	type Address struct {
+		City  string `enviro:"city"`
+		State string `enviro:"state"`
+	}
+	type Person struct {
+		Name    string `enviro:"name"`
+		Address Address
+	}
 
-	var b BytesSize
-	// fmt.Println(b.ParseField(""))
-	fmt.Println(b)
+	os.Setenv("NAME", "John Doe")
+	os.Setenv("CITY", "New York")
+	os.Setenv("STATE", "NY")
+	defer func() {
+		os.Unsetenv("NAME")
+		os.Unsetenv("CITY")
+		os.Unsetenv("STATE")
+	}()
+
+	expected := Person{
+		Name: "John Doe",
+		Address: Address{
+			City:  "New York",
+			State: "NY",
+		},
+	}
+
+	var person Person
+	e := New()
+	if err := e.ParseEnv(&person); err != nil {
+		t.Errorf("Failed to parse nested environment variables: %s", err)
+	}
+
+	if !reflect.DeepEqual(person, expected) {
+		t.Errorf("Expected %+v, got %+v", expected, person)
+	}
 }
 
-type BytesSize uint64
+func TestParseEnvNestedWithPrefix(t *testing.T) {
+	type Address struct {
+		City  string `enviro:"city"`
+		State string `enviro:"state"`
+	}
+	type Person struct {
+		Name    string  `enviro:"name"`
+		Address Address `enviro:"nested:address"`
+	}
 
-func (b *BytesSize) ParseField(value string) error {
-	f, err := humanize.ParseBytes(value)
+	// Set environment variables for the test
+	os.Setenv("NAME", "John Doe")
+	os.Setenv("ADDRESS_CITY", "New York")
+	os.Setenv("ADDRESS_STATE", "NY")
+	defer func() {
+		// Cleanup environment variables
+		os.Unsetenv("NAME")
+		os.Unsetenv("ADDRESS_CITY")
+		os.Unsetenv("ADDRESS_STATE")
+	}()
+
+	expected := Person{
+		Name: "John Doe",
+		Address: Address{
+			City:  "New York",
+			State: "NY",
+		},
+	}
+
+	var person Person
+	e := New()
+	if err := e.ParseEnv(&person); err != nil {
+		t.Errorf("Failed to parse nested environment variables: %s", err)
+	}
+
+	if !reflect.DeepEqual(person, expected) {
+		t.Errorf("Expected %+v, got %+v", expected, person)
+	}
+}
+
+type CustomTime struct {
+	time.Time
+}
+
+func (ct *CustomTime) ParseField(value string) error {
+	tm, err := time.Parse(time.RFC3339, value)
 	if err != nil {
 		return err
 	}
-	*b = BytesSize(f)
+	ct.Time = tm
 	return nil
 }
 
-func (b BytesSize) String() string {
-	return humanize.Bytes(uint64(b))
+func TestParseEnvCustomType(t *testing.T) {
+	type Config struct {
+		StartTime CustomTime `enviro:"start_time"`
+	}
+
+	startTime := "2023-01-02T15:04:05Z"
+	os.Setenv("START_TIME", startTime)
+	defer func() {
+		os.Unsetenv("START_TIME")
+	}()
+
+	var config Config
+	e := New()
+	if err := e.ParseEnv(&config); err != nil {
+		t.Errorf("Failed to parse custom type environment variable: %s", err)
+	}
+
+	expectedTime, _ := time.Parse(time.RFC3339, startTime)
+	if !config.StartTime.Time.Equal(expectedTime) {
+		t.Errorf("Expected %s, got %s", expectedTime, config.StartTime.Time)
+	}
 }

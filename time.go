@@ -48,7 +48,7 @@ var timeFormats = []timeFormat{
 	{time.StampNano, timeFormatTimeOnly},
 }
 
-func parseDateWith(s string, location *time.Location, formats []timeFormat) (d time.Time, e error) {
+func parseDateWith(s string, formats []timeFormat, location *time.Location) (d time.Time, e error) {
 	for _, format := range formats {
 		if d, e = time.Parse(format.format, s); e == nil {
 			// Some time formats have a zone name, but no offset, so it gets
