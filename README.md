@@ -2,6 +2,9 @@
 
 Enviro is a Go library designed to simplify the process of loading and parsing environment variables into Go structs. It supports a wide range of field types, nested structs, custom types, and more, with an emphasis on convenience and ease of use.
 
+## Disclaimer
+The current api is not yet stabilize. Breaking changes may occur before `v1.0.0` and will be noted on the release note.
+
 ## Features
 
 - **Automatic Parsing**: Automatically parse environment variables into Go structs.
