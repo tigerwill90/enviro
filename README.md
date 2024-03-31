@@ -67,8 +67,9 @@ func main() {
 
 ### Struct Tags
 
-- `enviro`: Specifies the name of the environment variable and options (e.g., `required`).
+- `enviro`: Specifies the name of the environment variable and options (e.g., `required` and/or `omitprefix`).
 - `envopt`: Provides additional parsing options for complex types (e.g., file permissions).
+- `envdefault`: Sets a default value for the field if the environment variable is not set or empty.
 
 ## Supported Types
 
